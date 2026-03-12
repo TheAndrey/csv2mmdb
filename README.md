@@ -2,7 +2,9 @@
 
 Generates MaxMind MMDB database from CSV file.
 
-### Example of input file
+## Examples
+
+Input CSV file:
 
 ```
 cidr,asn,as_name
@@ -10,4 +12,14 @@ cidr,asn,as_name
 38.22.219.0/24,100,"FMC Central Engineering Laboratories"
 195.74.62.0/23,10,"CSNET Coordination and Information Center (CSNET-CIC)"
 203.109.36.0/24,1,"Level 3 Parent, LLC"
+```
+
+Database record:
+
+```json
+{
+  "route": "195.74.62.0/23",
+  "asn": 10,
+  "as_name": "CSNET Coordination and Information Center (CSNET-CIC)"
+}
 ```
