@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/csv"
+	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -14,13 +15,21 @@ import (
 )
 
 func main() {
-	if len(os.Args) != 3 {
-		fmt.Fprintf(os.Stderr, "Usage: %s <input.csv> <output.mmdb>\n", os.Args[0])
+	namesPath := flag.String("names", "", "CSV file with ASN and AS name (required)")
+	routesPath := flag.String("routes", "", "CSV file with CIDR and ASN (required)")
+	outputPath := flag.String("output", "", "Output MMDB file path (required)")
+	flag.Parse()
+
+	if *routesPath == "" || *namesPath == "" || *outputPath == "" {
+		fmt.Fprintln(os.Stderr, "Usage: -names <asn+name.csv> -routes <cidr+asn.csv> -output <output.mmdb>")
 		os.Exit(1)
 	}
 
-	inputPath := os.Args[1]
-	outputPath := os.Args[2]
+	asNames, err := loadASNames(*namesPath)
+	if err != nil {
+		log.Fatalf("Failed to load names file: %v", err)
+	}
+	fmt.Printf("Loaded %d AS names\n", len(asNames))
 
 	/* Init database */
 	tree, err := mmdbwriter.New(mmdbwriter.Options{
@@ -35,7 +44,7 @@ func main() {
 	}
 
 	// Read CSV
-	file, err := os.Open(inputPath)
+	file, err := os.Open(*routesPath)
 	if err != nil {
 		log.Fatalf("Unable to open: %v", err)
 	}
@@ -48,9 +57,10 @@ func main() {
 		log.Fatalf("CSV read error: %v", err)
 	}
 
-	fmt.Printf("Start processing of: %s\n", inputPath)
+	fmt.Printf("Start processing of: %s\n", *routesPath)
 
 	line := 1
+	recordCount := 0
 	for {
 		record, err := reader.Read()
 		if err == io.EOF {
@@ -63,7 +73,6 @@ func main() {
 
 		cidrStr := record[0]
 		asnStr := record[1]
-		asName := record[2]
 
 		// Parse CIDR (supports IPv4/IPv6)
 		_, ipNet, err := net.ParseCIDR(cidrStr)
@@ -79,19 +88,27 @@ func main() {
 			continue
 		}
 
-		data := mmdbtype.Map{
-			"route":   mmdbtype.String(cidrStr),
-			"asn":     mmdbtype.Uint32(asn),
-			"as_name": mmdbtype.String(asName),
+		asName, ok := asNames[uint32(asn)]
+		if !ok {
+			log.Printf("AS name not found for %d, skipping", asn)
+			continue
 		}
 
-		if err := tree.Insert(ipNet, data); err != nil {
+		data := mmdbtype.Map{
+			"route":   mmdbtype.String(cidrStr),
+			"asn":     mmdbtype.Uint32(uint32(asn)),
+			"as_name": asName,
+		}
+
+		if err := tree.Insert(ipNet, data); err == nil {
+			recordCount++
+		} else {
 			log.Printf("Error adding %s: %v", cidrStr, err)
 		}
 	}
 
 	// Write final database to file
-	outFile, err := os.Create(outputPath)
+	outFile, err := os.Create(*outputPath)
 	if err != nil {
 		log.Fatalf("Unable to create file: %v", err)
 	}
@@ -102,5 +119,40 @@ func main() {
 		log.Fatalf("Error writing file: %v", err)
 	}
 
-	fmt.Printf("Database successfully written (Processed %d lines).\n", line-1)
+	fmt.Printf("Database successfully written (processed %d lines, %d records created).\n", line-1, recordCount)
+}
+
+// Generates AS name map
+func loadASNames(path string) (map[uint32]mmdbtype.String, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	reader := csv.NewReader(file)
+	if _, err := reader.Read(); err != nil { // skip header
+		return nil, err
+	}
+
+	names := make(map[uint32]mmdbtype.String)
+
+	for {
+		record, err := reader.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+
+		asn, err := strconv.ParseUint(record[0], 10, 32)
+		if err != nil {
+			log.Printf("Invalid ASN number '%s'", record[0])
+			continue
+		}
+		names[uint32(asn)] = mmdbtype.String(record[1])
+	}
+
+	return names, nil
 }
