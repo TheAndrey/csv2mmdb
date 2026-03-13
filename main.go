@@ -25,7 +25,7 @@ func main() {
 	/* Init database */
 	tree, err := mmdbwriter.New(mmdbwriter.Options{
 		DatabaseType: "Custom-ASN-Database",
-		RecordSize:   24, // up to 16M records
+		RecordSize:   28,
 		Description: map[string]string{
 			"en": "Custom ASN and CIDR database",
 		},
